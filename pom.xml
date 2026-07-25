@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>cn.richie696.ai</groupId>
+    <artifactId>atlas-richie-ai-parent</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Atlas Richie AI Parent</name>
+    <description>Atlas Richie AI 扩展聚合父 POM —— 串联各 Spring AI 适配器模块（vikingdb vector store、Kafka 等）的 BOM 与发布元数据。</description>
+
+    <url>https://github.com/richie696/atlas-richie-ai</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+            <comments>Business-friendly OSS license.</comments>
+        </license>
+    </licenses>
+
+    <organization>
+        <name>Richie Technology Co., Ltd.</name>
+        <url>https://www.richie696.cn</url>
+    </organization>
+
+    <developers>
+        <developer>
+            <id>richie696</id>
+            <name>Richie Wang</name>
+            <email>richie696@icloud.com</email>
+            <organization>Richie Technology Co., Ltd.</organization>
+            <organizationUrl>https://www.richie696.cn</organizationUrl>
+            <roles>
+                <role>Architect</role>
+            </roles>
+            <timezone>Asia/Shanghai</timezone>
+        </developer>
+    </developers>
+
+    <scm>
+        <url>https://github.com/richie696/atlas-richie-ai</url>
+        <connection>scm:git:https://github.com/richie696/atlas-richie-ai.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/richie696/atlas-richie-ai.git</developerConnection>
+        <!-- 发布前应改为对应 git tag；HEAD 用于开发版 -->
+        <tag>HEAD</tag>
+    </scm>
+
+    <!--
+        发布策略：
+        - SNAPSHOT 版本 → CNB 私服（先在 cnb.cool 上集成测试）
+        - release 版本 → Maven Central（生产发布，依赖 Sonatype 审核）
+        通过 ~/.m2/settings.xml 中的 <server> 凭据路由：
+          id=richie696-repo-richie-snapshot → CNB token
+          id=central → Sonatype Central Portal token
+    -->
+    <distributionManagement>
+        <snapshotRepository>
+            <id>richie696-repo-richie-snapshot</id>
+            <name>richie696-repo-richie-snapshot</name>
+            <url>https://maven.cnb.cool/richie696/repo-richie-snapshot/-/packages/</url>
+        </snapshotRepository>
+        <repository>
+            <id>central</id>
+            <name>Maven Central</name>
+            <url>https://central.sonatype.com/api/v1/publisher/deployments</url>
+        </repository>
+    </distributionManagement>
+
+    <!--
+        私服依赖解析：让本仓库或下游能拉取 CNB 上的自家 SNAPSHOT/release 产物。
+        在 settings.xml 中需配 id=richie696-repo-richie-* 的凭据。
+    -->
+    <repositories>
+        <repository>
+            <id>richie696-repo-richie-snapshot</id>
+            <url>https://maven.cnb.cool/richie696/repo-richie-snapshot/-/packages/</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>richie696-repo-richie-release</id>
+            <url>https://maven.cnb.cool/richie696/repo-richie-release/-/packages/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
+    <properties>
+        <spring-ai.version>2.0.0</spring-ai.version>
+    </properties>
+
+    <modules>
+        <module>atlas-richie-ai-bom</module>
+        <module>vector-stores/atlas-richie-ai-vikingdb-store</module>
+        <module>auto-configurations/vector-stores/atlas-richie-ai-autoconfigure-vector-store-vikingdb</module>
+        <module>starters/atlas-richie-ai-starter-vector-store-vikingdb</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring AI 模块版本管理（BOM 模式 import） -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- 本项目内部模块版本引用（子模块不显式 version） -->
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-vikingdb-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-autoconfigure-vector-store-vikingdb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!--
+                覆盖 Spring Boot 父 POM 管的 maven-plugin-annotations 3.7.0：
+                Maven 4 内置 3.13.1，与 3.7.0 冲突，触发 "Ignored POM import" 警告。
+                显式声明以 Maven 4 内置版本为准。
+            -->
+            <dependency>
+                <groupId>org.apache.maven.plugin-tools</groupId>
+                <artifactId>maven-plugin-annotations</artifactId>
+                <version>3.13.1</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!-- 1) sources jar —— Maven Central 必备 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 2) javadoc jar —— Maven Central 必备 -->
+            <!-- doclint 排除 missing/reference：项目里部分内部 helper 不写 Javadoc 不阻塞发布 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.12.0</version>
+                <configuration>
+                    <doclint>all,-missing,-reference</doclint>
+                    <failOnError>true</failOnError>
+                    <failOnWarnings>false</failOnWarnings>
+                    <encoding>${project.build.sourceEncoding}</encoding>
+                    <quiet>true</quiet>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 3) GPG 签名 —— Maven Central 强制要求 .asc -->
+            <!-- keyname / passphrase 通过 settings.xml profile 注入，避免明文写入 pom -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.2.7</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                        <configuration>
+                            <keyname>${gpg.keyname}</keyname>
+                            <passphrase>${gpg.passphrase}</passphrase>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 4) Sonatype Central Portal 发布（替代 nexus-staging-maven-plugin） -->
+            <!--
+                注意：这里故意不加 <extensions>true</extensions>。
+                加了会让插件接管 deploy 阶段，把 maven-deploy-plugin 挤掉，
+                导致 SNAPSHOT 阶段没有任何插件 deploy 到 CNB（私服）。
+
+                当前行为（双 plugin 并存，各自处理自己负责的目标）：
+                - SNAPSHOT：maven-deploy-plugin → distributionManagement → CNB
+                            central-publishing-maven-plugin 内部跳过（自动）
+                - release：maven-deploy-plugin → CNB release（多余发布）
+                            central-publishing-maven-plugin → Maven Central
+
+                release 模式双发布问题：通过 -Dmaven.deploy.skip=true 关闭 maven-deploy-plugin
+                （scripts/release.sh release 已自动传此 flag）
+            -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>true</autoPublish>
+                    <waitUntil>published</waitUntil>
+                    <deploymentName>atlas-richie-ai-${project.version}</deploymentName>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

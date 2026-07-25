@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>cn.richie696.ai</groupId>
+        <artifactId>atlas-richie-ai-parent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>atlas-richie-ai-bom</artifactId>
+    <packaging>pom</packaging>
+    <name>Atlas Richie AI BOM</name>
+    <description>Dependency management for Atlas Richie AI extensions.</description>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-vikingdb-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-autoconfigure-vector-store-vikingdb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-starter-vector-store-vikingdb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!--
+                BOM 无 Java 源码，禁用父 POM 的 source/javadoc plugin。
+                maven-javadoc-plugin 3.12.0 支持 <skip> 参数；
+                maven-source-plugin 3.4.0 不支持 <skip>（报 unknown parameter 警告），
+                但 goal 自动跳过 packaging=pom 的项目，所以无需显式配置。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
