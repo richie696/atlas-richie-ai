@@ -15,8 +15,10 @@
  */
 package cn.richie696.ai.vectorstore.vikingdb.autoconfigure;
 
-import lombok.Data;
+import cn.richie696.ai.vectorstore.vikingdb.model.VikingDbFilterValidationMode;
+import cn.richie696.ai.vectorstore.vikingdb.model.VikingDbIndexVectorOptions;
 import com.volcengine.vikingdb.model.FieldForCreateVikingdbCollectionInput;
+import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.springframework.ai.vectorstore.properties.CommonVectorStoreProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -42,25 +44,39 @@ public class VikingDbVectorStoreProperties extends CommonVectorStoreProperties {
 
     public static final String CONFIG_PREFIX = "spring.ai.vectorstore.vikingdb";
 
-    /** VikingDB Collection 名（默认 {@code vector_store}） */
+    /**
+     * VikingDB Collection 名（默认 {@code vector_store}）
+     */
     private String collectionName = "vector_store";
 
-    /** VikingDB Index 名；默认与 collection 同名。 */
+    /**
+     * VikingDB Index 名；默认与 collection 同名。
+     */
     private String indexName = "vector_store";
 
-    /** Embedding 向量维度（默认 1536 — OpenAI text-embedding-ada-002） */
+    /**
+     * Embedding 向量维度（默认 1536 — OpenAI text-embedding-ada-002）
+     */
     private int embeddingDimension = 1536;
 
-    /** VikingDB Project 名；多 project 账号必填，未填走 VikingDB 默认 project */
+    /**
+     * VikingDB Project 名；多 project 账号必填，未填走 VikingDB 默认 project
+     */
     private String projectName;
 
-    /** Collection / Index 描述 */
+    /**
+     * Collection / Index 描述
+     */
     private String description;
 
-    /** Index 分片数；null 表示走 VikingDB 默认值 */
+    /**
+     * Index 分片数；null 表示走 VikingDB 默认值
+     */
     private Integer shardCount;
 
-    /** scalar 索引字段名列表（用于 {@code SearchByVectorRequest.filter} 等值过滤） */
+    /**
+     * scalar 索引字段名列表（用于 {@code SearchByVectorRequest.filter} 等值过滤）
+     */
     private List<String> scalarIndex;
 
     /**
@@ -70,4 +86,37 @@ public class VikingDbVectorStoreProperties extends CommonVectorStoreProperties {
      * 本 schema 无法承载；请单独声明 vector 索引。
      */
     private Map<String, FieldForCreateVikingdbCollectionInput.FieldTypeEnum> metadataFields = Map.of();
+
+    /**
+     * Schema-declared validation preserves existing filter behavior by default.
+     */
+    private VikingDbFilterValidationMode filterValidationMode = VikingDbFilterValidationMode.DECLARED_FIELDS;
+
+    private IndexProperties index = new IndexProperties();
+    private SearchDefaultsProperties searchDefaults = new SearchDefaultsProperties();
+
+    @Data
+    public static class IndexProperties {
+        private VikingDbIndexVectorOptions.Type type = VikingDbIndexVectorOptions.Type.HNSW;
+        private VikingDbIndexVectorOptions.Distance distance = VikingDbIndexVectorOptions.Distance.COSINE;
+        private VikingDbIndexVectorOptions.Quantization quantization = VikingDbIndexVectorOptions.Quantization.FLOAT;
+        private Integer hnswM;
+        private Integer hnswCef;
+        private Integer hnswSef;
+        private Integer diskannM;
+        private Integer diskannCef;
+        private Float cacheRatio;
+        private Float pqCodeRatio;
+    }
+
+    @Data
+    public static class SearchDefaultsProperties {
+        private Integer limit;
+        private Integer offset;
+        private String partition;
+        private Double denseWeight;
+        private Double scaleK;
+        private Integer filterPreAnnLimit;
+        private Double filterPreAnnRatio;
+    }
 }

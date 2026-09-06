@@ -15,16 +15,25 @@
  */
 package cn.richie696.ai.vectorstore.vikingdb.autoconfigure;
 
+import cn.richie696.ai.vectorstore.vikingdb.VikingDbStoreSpec;
 import cn.richie696.ai.vectorstore.vikingdb.VikingDbVectorStore;
+import cn.richie696.ai.vectorstore.vikingdb.VikingDbVectorStoreFactory;
+import cn.richie696.ai.vectorstore.vikingdb.model.VikingDbIndexVectorOptions;
+import cn.richie696.ai.vectorstore.vikingdb.model.VikingDbSearchAdvanceOptions;
+import cn.richie696.ai.vectorstore.vikingdb.model.VikingDbSearchCommonOptions;
 import com.volcengine.ApiClient;
 import com.volcengine.sign.Credentials;
 import com.volcengine.vikingdb.VikingdbApi;
 import com.volcengine.vikingdb.runtime.core.ClientConfig;
+import com.volcengine.vikingdb.runtime.core.auth.Auth;
 import com.volcengine.vikingdb.runtime.core.auth.AuthWithAkSk;
+import com.volcengine.vikingdb.runtime.core.auth.AuthWithApiKey;
 import com.volcengine.vikingdb.runtime.enums.Scheme;
 import com.volcengine.vikingdb.runtime.vector.service.VectorService;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.impl.client.HttpClients;
 import org.springframework.ai.embedding.BatchingStrategy;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.TokenCountBatchingStrategy;
@@ -32,10 +41,7 @@ import org.springframework.ai.vectorstore.SpringAIVectorStoreTypes;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.*;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
@@ -58,9 +64,9 @@ import org.springframework.context.annotation.Bean;
  */
 @Slf4j
 @AutoConfiguration
-@ConditionalOnClass({ VikingDbVectorStore.class, EmbeddingModel.class })
+@ConditionalOnClass({VikingDbVectorStore.class, EmbeddingModel.class})
 @ConditionalOnBean(EmbeddingModel.class)
-@EnableConfigurationProperties({ VikingDbClientProperties.class, VikingDbVectorStoreProperties.class })
+@EnableConfigurationProperties({VikingDbClientProperties.class, VikingDbVectorStoreProperties.class})
 @ConditionalOnProperty(name = SpringAIVectorStoreTypes.TYPE, havingValue = "vikingdb")
 public class VikingDbVectorStoreAutoConfiguration {
 
@@ -70,7 +76,7 @@ public class VikingDbVectorStoreAutoConfiguration {
         return new VikingDbPropertiesConnectionDetails(properties);
     }
 
-@Bean
+    @Bean
     @ConditionalOnMissingBean
     public BatchingStrategy vikingDbBatchingStrategy() {
         return new TokenCountBatchingStrategy();
@@ -85,20 +91,25 @@ public class VikingDbVectorStoreAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public VectorService vikingDbDataPlaneClient(VikingDbClientProperties properties) {
+    public VectorService vikingDbDataPlaneClient(VikingDbConnectionDetails connection) {
         log.info("VikingDB 数据面 SDK 初始化: scheme={}, host={}, region={}",
-                properties.getScheme(), properties.getHost(), properties.getRegion());
+                connection.getScheme(), connection.getHost(), connection.getRegion());
         try {
+            Auth auth = connection.getAuthenticationMode() == VikingDbAuthenticationMode.API_KEY
+                    ? new AuthWithApiKey(connection.getApiKey())
+                    : new AuthWithAkSk(connection.getAccessKey(), connection.getSecretKey());
+            RequestConfig requestConfig = RequestConfig.custom()
+                    .setConnectTimeout((int) connection.getConnectTimeoutMs())
+                    .setSocketTimeout((int) connection.getReadTimeoutMs())
+                    .setConnectionRequestTimeout((int) connection.getReadTimeoutMs())
+                    .build();
             return new VectorService(
-                    Scheme.valueOf(properties.getScheme()),
-                    properties.getHost(),
-                    properties.getRegion(),
-                    new AuthWithAkSk(properties.getAccessKey(), properties.getSecretKey()),
-                    ClientConfig.builder().build());
+                    Scheme.valueOf(connection.getScheme()), connection.getHost(), connection.getRegion(), auth,
+                    ClientConfig.builder().httpClient(HttpClients.custom().setDefaultRequestConfig(requestConfig).build()).build());
         } catch (Exception e) {
             throw new IllegalStateException(
-                    "VikingDB 数据面 SDK 初始化失败: host=" + properties.getHost()
-                            + ", region=" + properties.getRegion() + ", error=" + e.getMessage(), e);
+                    "VikingDB 数据面 SDK 初始化失败: host=" + connection.getHost()
+                            + ", region=" + connection.getRegion() + ", error=" + e.getMessage(), e);
         }
     }
 
@@ -106,19 +117,38 @@ public class VikingDbVectorStoreAutoConfiguration {
      * VikingDB 控制面 SDK 入口 — 留给运维 / 索引管理 API（createCollection / listIndexes 等），
      * 不进入 VectorStore 主路径。
      *
-     * <p>始终注册，使 {@link VikingDbVectorStore} 能通过 {@link ObjectProvider} 在
-     * {@code initializeSchema} 时解析它；store 将该 Bean 视为可选，缺失时降级为告警日志。</p>
+     * <p>仅在配置中存在 AK/SK 时注册。API Key-only 数据面不具备控制面认证能力，
+     * 因而不会因为不需要 schema 管理而在启动期失败；若同时启用
+     * {@code initializeSchema=true}，Store 会明确提示需要控制面 client。</p>
      */
     @Bean
     @ConditionalOnMissingBean
-    public VikingdbApi vikingDbControlPlaneClient(VikingDbClientProperties properties) {
+    @ConditionalOnExpression("T(org.springframework.util.StringUtils).hasText('${spring.ai.vectorstore.vikingdb.client.access-key:}') && T(org.springframework.util.StringUtils).hasText('${spring.ai.vectorstore.vikingdb.client.secret-key:}')")
+    public VikingdbApi vikingDbControlPlaneClient(VikingDbConnectionDetails connection) {
         log.info("VikingDB 控制面 SDK 初始化: endpoint={}, region={}",
-                properties.getControlEndpoint(), properties.getRegion());
+                connection.getControlEndpoint(), connection.getRegion());
         ApiClient apiClient = new ApiClient()
-                .setEndpoint(properties.getControlEndpoint())
-                .setCredentials(Credentials.getCredentials(properties.getAccessKey(), properties.getSecretKey()))
-                .setRegion(properties.getRegion());
+                .setEndpoint(connection.getControlEndpoint())
+                .setCredentials(Credentials.getCredentials(connection.getAccessKey(), connection.getSecretKey()))
+                .setRegion(connection.getRegion())
+                .setConnectTimeout((int) connection.getConnectTimeoutMs())
+                .setReadTimeout((int) connection.getReadTimeoutMs())
+                .setWriteTimeout((int) connection.getWriteTimeoutMs());
         return new VikingdbApi(apiClient);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public VikingDbVectorStoreFactory vikingDbVectorStoreFactory(
+            EmbeddingModel embeddingModel, VectorService vikingDbDataPlaneClient,
+            ObjectProvider<VikingdbApi> vikingDbControlPlaneClient,
+            BatchingStrategy batchingStrategy,
+            ObjectProvider<ObservationRegistry> observationRegistry,
+            ObjectProvider<VectorStoreObservationConvention> customObservationConvention) {
+        return new VikingDbVectorStoreFactory(embeddingModel, vikingDbDataPlaneClient,
+                vikingDbControlPlaneClient.getIfAvailable(), batchingStrategy,
+                observationRegistry.getIfUnique(() -> ObservationRegistry.NOOP),
+                customObservationConvention.getIfAvailable());
     }
 
     /**
@@ -131,42 +161,31 @@ public class VikingDbVectorStoreAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public VikingDbVectorStore vectorStore(VectorService vikingDbDataPlaneClient,
-                                           EmbeddingModel embeddingModel,
-                                           VikingDbVectorStoreProperties properties,
-                                           BatchingStrategy batchingStrategy,
-                                           ObjectProvider<ObservationRegistry> observationRegistry,
-                                           ObjectProvider<VectorStoreObservationConvention> customObservationConvention,
-                                           ObjectProvider<VikingdbApi> vikingDbControlPlaneClient) {
-        VikingDbVectorStore.Builder builder = new VikingDbVectorStore.Builder(embeddingModel, vikingDbDataPlaneClient)
-                .collectionName(properties.getCollectionName())
-                .indexName(properties.getIndexName())
-                .embeddingDimension(properties.getEmbeddingDimension())
-                .initializeSchema(properties.isInitializeSchema())
-                .batchingStrategy(batchingStrategy)
-                .metadataFields(properties.getMetadataFields());
-        if (properties.getProjectName() != null) {
-            builder.projectName(properties.getProjectName());
-        }
-        if (properties.getDescription() != null) {
-            builder.description(properties.getDescription());
-        }
-        if (properties.getShardCount() != null) {
-            builder.shardCount(properties.getShardCount());
-        }
-        if (properties.getScalarIndex() != null && !properties.getScalarIndex().isEmpty()) {
-            builder.scalarIndex(properties.getScalarIndex());
-        }
-        VikingdbApi controlPlane = vikingDbControlPlaneClient.getIfAvailable();
-        if (controlPlane != null) {
-            builder.controlPlane(controlPlane);
-        }
-        ObservationRegistry registry = observationRegistry.getIfUnique(() -> ObservationRegistry.NOOP);
-        builder.observationRegistry(registry);
-        VectorStoreObservationConvention convention = customObservationConvention.getIfAvailable();
-        if (convention != null) {
-            builder.customObservationConvention(convention);
-        }
-        return builder.build();
+    public VikingDbVectorStore vectorStore(VikingDbVectorStoreFactory factory,
+                                           VikingDbVectorStoreProperties properties) {
+        VikingDbStoreSpec spec = VikingDbStoreSpec.builder()
+                .collectionName(properties.getCollectionName()).indexName(properties.getIndexName())
+                .embeddingDimension(properties.getEmbeddingDimension()).initializeSchema(properties.isInitializeSchema())
+                .projectName(properties.getProjectName()).description(properties.getDescription())
+                .shardCount(properties.getShardCount()).scalarIndex(properties.getScalarIndex())
+                .metadataFields(properties.getMetadataFields())
+                .filterValidationMode(properties.getFilterValidationMode())
+                .searchDefaults(VikingDbSearchCommonOptions.builder()
+                        .limit(properties.getSearchDefaults().getLimit())
+                        .offset(properties.getSearchDefaults().getOffset())
+                        .partition(properties.getSearchDefaults().getPartition()).build())
+                .searchAdvanceDefaults(VikingDbSearchAdvanceOptions.builder()
+                        .denseWeight(properties.getSearchDefaults().getDenseWeight())
+                        .scaleK(properties.getSearchDefaults().getScaleK())
+                        .filterPreAnnLimit(properties.getSearchDefaults().getFilterPreAnnLimit())
+                        .filterPreAnnRatio(properties.getSearchDefaults().getFilterPreAnnRatio()).build())
+                .indexVectorOptions(VikingDbIndexVectorOptions.builder()
+                        .type(properties.getIndex().getType()).distance(properties.getIndex().getDistance())
+                        .quantization(properties.getIndex().getQuantization())
+                        .hnswM(properties.getIndex().getHnswM()).hnswCef(properties.getIndex().getHnswCef())
+                        .hnswSef(properties.getIndex().getHnswSef()).diskannM(properties.getIndex().getDiskannM())
+                        .diskannCef(properties.getIndex().getDiskannCef()).cacheRatio(properties.getIndex().getCacheRatio())
+                        .pqCodeRatio(properties.getIndex().getPqCodeRatio()).build()).build();
+        return factory.create(spec);
     }
 }

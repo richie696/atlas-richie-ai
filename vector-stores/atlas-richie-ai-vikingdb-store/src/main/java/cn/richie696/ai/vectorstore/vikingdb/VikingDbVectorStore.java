@@ -1,25 +1,24 @@
 /* Copyright (c) 2026 Richie (https://www.github.com/richie696). Licensed under Apache-2.0. */
 package cn.richie696.ai.vectorstore.vikingdb;
 
+import cn.richie696.ai.vectorstore.vikingdb.api.*;
+import cn.richie696.ai.vectorstore.vikingdb.index.VikingDbCollectionManager;
+import cn.richie696.ai.vectorstore.vikingdb.index.VikingDbIndexManager;
+import cn.richie696.ai.vectorstore.vikingdb.internal.VikingDbIndexRequestMapper;
+import cn.richie696.ai.vectorstore.vikingdb.internal.VikingDbRerankExecutor;
+import cn.richie696.ai.vectorstore.vikingdb.internal.VikingDbSearchExecutor;
+import cn.richie696.ai.vectorstore.vikingdb.model.*;
 import com.volcengine.ApiException;
 import com.volcengine.vikingdb.VikingdbApi;
-import com.volcengine.vikingdb.model.CreateVikingdbCollectionRequest;
-import com.volcengine.vikingdb.model.CreateVikingdbIndexRequest;
-import com.volcengine.vikingdb.model.CreateVikingdbTaskRequest;
-import com.volcengine.vikingdb.model.FieldForCreateVikingdbCollectionInput;
-import com.volcengine.vikingdb.model.GetVikingdbCollectionRequest;
-import com.volcengine.vikingdb.model.GetVikingdbCollectionResponse;
-import com.volcengine.vikingdb.model.GetVikingdbIndexRequest;
-import com.volcengine.vikingdb.model.TaskConfigForCreateVikingdbTaskInput;
-import com.volcengine.vikingdb.model.VectorIndexForCreateVikingdbIndexInput;
+import com.volcengine.vikingdb.model.*;
 import com.volcengine.vikingdb.runtime.exception.ApiClientException;
 import com.volcengine.vikingdb.runtime.exception.VectorApiException;
 import com.volcengine.vikingdb.runtime.vector.model.request.DeleteDataRequest;
-import com.volcengine.vikingdb.runtime.vector.model.request.SearchByVectorRequest;
+import com.volcengine.vikingdb.runtime.vector.model.request.FetchDataInIndexRequest;
 import com.volcengine.vikingdb.runtime.vector.model.request.UpsertDataRequest;
 import com.volcengine.vikingdb.runtime.vector.model.response.DataApiResponse;
+import com.volcengine.vikingdb.runtime.vector.model.response.FetchDataInIndexResult;
 import com.volcengine.vikingdb.runtime.vector.model.response.SearchItem;
-import com.volcengine.vikingdb.runtime.vector.model.response.SearchResult;
 import com.volcengine.vikingdb.runtime.vector.service.VectorService;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.Getter;
@@ -37,13 +36,7 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
 import javax.annotation.Nonnull;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 /**
  * 生产级 Spring AI 适配器，对接 VikingDB 的外部嵌入（external-embedding）数据模型。
@@ -52,7 +45,8 @@ import java.util.Set;
  * 防止静默丢数据与非法 upsert。</p>
  */
 @Slf4j
-public final class VikingDbVectorStore extends AbstractObservationVectorStore implements InitializingBean {
+public final class VikingDbVectorStore extends AbstractObservationVectorStore
+        implements InitializingBean, VikingDbSearchOperations, VikingDbDocumentOperations, VikingDbRerankOperations {
 
     public static final String DEFAULT_COLLECTION_NAME = "vector_store";
     public static final int OPENAI_EMBEDDING_DIMENSION_SIZE = 1536;
@@ -60,43 +54,92 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
     public static final String DOC_ID_FIELD_NAME = "doc_id";
     public static final String CONTENT_FIELD_NAME = "content";
     public static final String EMBEDDING_FIELD_NAME = "embedding";
-    /** VikingDB 数据面 upsert 上限。与嵌入批处理解耦。 */
+    /**
+     * VikingDB 数据面 upsert 上限。与嵌入批处理解耦。
+     */
     public static final int MAX_UPSERT_BATCH_SIZE = 1_000;
-    /** VikingDB 数据面 delete 上限。 */
+    /**
+     * VikingDB 数据面 delete 上限。
+     */
     public static final int MAX_DELETE_BATCH_SIZE = 1_000;
 
-    /** 数据面 SDK，所有读写操作均使用。必填，非空。 */
+    /**
+     * 数据面 SDK，所有读写操作均使用。必填，非空。
+     */
     private final VectorService dataPlane;
     /**
      * 控制面 SDK，仅由 {@link #afterPropertiesSet()}（当 {@link #initializeSchema} 为 true 时）
      * 与 {@link #deleteByFilter(Filter.Expression)} 消费。可选 —— 接受 null，降级为日志告警。
      */
     private final VikingdbApi controlPlane;
-    /** 本 store 操作的 VikingDB collection 名。 */
-    @Getter private final String collectionName;
-    /** {@link #collectionName} 内的 VikingDB index 名；默认与 collection 同名。 */
-    @Getter private final String indexName;
-    /** 嵌入向量维度。须与上游 {@code EmbeddingModel} 输出匹配。 */
-    @Getter private final int embeddingDimension;
+    /**
+     * 本 store 操作的 VikingDB collection 名。
+     */
+    @Getter
+    private final String collectionName;
+    /**
+     * {@link #collectionName} 内的 VikingDB index 名；默认与 collection 同名。
+     */
+    @Getter
+    private final String indexName;
+    /**
+     * 嵌入向量维度。须与上游 {@code EmbeddingModel} 输出匹配。
+     */
+    @Getter
+    private final int embeddingDimension;
     /**
      * 若为 true，{@link #afterPropertiesSet()} 在启动期创建 collection 与 index。
      * 生产环境通常由外部预配 schema，保持 false。
      */
     private final boolean initializeSchema;
-    /** 将 Spring AI 过滤器表达式翻译为 VikingDB 原生谓词。 */
-    @Getter private final VikingDbFilterExpressionConverter filterExpressionConverter;
-    /** 火山引擎 project 名；{@code null} 时走 SDK 默认 project。 */
-    @Getter private final String projectName;
-    /** 应用于 collection 与 index 的人类可读描述。 */
-    @Getter private final String description;
-    /** Index 分片数；{@code null} 时走 VikingDB 服务端默认。 */
-    @Getter private final Integer shardCount;
-    /** 除向量索引外还须以标量索引支撑的字段名集合。 */
-    @Getter private final List<String> scalarIndex;
-    /** 文档 metadata 的 schema 声明；未声明的 metadata 键在 upsert 时被拒绝。 */
-    @Getter private final Map<String, FieldForCreateVikingdbCollectionInput.FieldTypeEnum> metadataFields;
-    /** 预计算的 {@code output_fields} 列表，每个搜索请求都会带上（content + metadata keys）。 */
-    @Getter private final List<String> outputFields;
+    /**
+     * 将 Spring AI 过滤器表达式翻译为 VikingDB 原生谓词。
+     */
+    @Getter
+    private final VikingDbFilterExpressionConverter filterExpressionConverter;
+    /**
+     * 火山引擎 project 名；{@code null} 时走 SDK 默认 project。
+     */
+    @Getter
+    private final String projectName;
+    /**
+     * 应用于 collection 与 index 的人类可读描述。
+     */
+    @Getter
+    private final String description;
+    /**
+     * Index 分片数；{@code null} 时走 VikingDB 服务端默认。
+     */
+    @Getter
+    private final Integer shardCount;
+    /**
+     * 除向量索引外还须以标量索引支撑的字段名集合。
+     */
+    @Getter
+    private final List<String> scalarIndex;
+    /**
+     * 文档 metadata 的 schema 声明；未声明的 metadata 键在 upsert 时被拒绝。
+     */
+    @Getter
+    private final Map<String, FieldForCreateVikingdbCollectionInput.FieldTypeEnum> metadataFields;
+    /**
+     * 预计算的 {@code output_fields} 列表，每个搜索请求都会带上（content + metadata keys）。
+     */
+    @Getter
+    private final List<String> outputFields;
+    @Getter
+    private final VikingDbFilterValidationMode filterValidationMode;
+    @Getter
+    private final VikingDbSearchCommonOptions searchDefaults;
+    @Getter
+    private final VikingDbSearchAdvanceOptions searchAdvanceDefaults;
+    @Getter
+    private final VikingDbIndexVectorOptions indexVectorOptions;
+    private final VikingDbResourceRef boundTarget;
+    private final VikingDbSearchExecutor searchExecutor;
+    private final VikingDbIndexOperations indexOperations;
+    private final VikingDbCollectionOperations collectionOperations;
+    private final VikingDbRerankExecutor rerankExecutor;
 
     private VikingDbVectorStore(Builder builder) {
         super(builder);
@@ -113,6 +156,17 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
         this.scalarIndex = List.copyOf(builder.scalarIndex);
         this.metadataFields = Map.copyOf(builder.metadataFields);
         this.outputFields = outputFields(metadataFields);
+        this.filterValidationMode = builder.filterValidationMode;
+        this.searchDefaults = builder.searchDefaults;
+        this.searchAdvanceDefaults = builder.searchAdvanceDefaults;
+        this.indexVectorOptions = builder.indexVectorOptions;
+        this.boundTarget = new VikingDbResourceRef(projectName, collectionName, indexName);
+        this.searchExecutor = new VikingDbSearchExecutor(dataPlane, boundTarget, outputFields,
+                searchDefaults, searchAdvanceDefaults, embeddingDimension, metadataFields,
+                Set.copyOf(scalarIndex), filterValidationMode, filterExpressionConverter);
+        this.indexOperations = controlPlane == null ? null : new VikingDbIndexManager(controlPlane);
+        this.collectionOperations = controlPlane == null ? null : new VikingDbCollectionManager(controlPlane);
+        this.rerankExecutor = new VikingDbRerankExecutor(dataPlane);
         validateConfiguration();
     }
 
@@ -163,7 +217,7 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      * <p>{@code initializeSchema} 为 {@code false} 时为 no-op —— 这是典型生产姿态，
      * schema 由外部预配。</p>
      *
-     * @throws IllegalStateException 当 {@code initializeSchema=true} 但未绑定控制面 SDK。
+     * @throws IllegalStateException        当 {@code initializeSchema=true} 但未绑定控制面 SDK。
      * @throws VikingDbVectorStoreException 当任一控制面调用失败或校验拒绝 schema。
      */
     @Override
@@ -223,7 +277,7 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      * @param dimension vector 字段所需的维度；非 vector 字段传 {@code null} 跳过维度校验。
      */
     private void validateField(Map<String, com.volcengine.vikingdb.model.FieldForGetVikingdbCollectionOutput> fields,
-            String name, String type, Integer dimension) {
+                               String name, String type, Integer dimension) {
         var field = fields.get(name);
         if (field == null || field.getFieldType() == null || !type.equals(field.getFieldType().getValue())
                 || (dimension != null && !dimension.equals(field.getDim()))) {
@@ -258,14 +312,18 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
         return message != null && (message.contains("NotFound") || message.contains("not found"));
     }
 
-    /** 构造控制面 "get collection" 探测请求；当 {@link #projectName} 非空时附加。 */
+    /**
+     * 构造控制面 "get collection" 探测请求；当 {@link #projectName} 非空时附加。
+     */
     private GetVikingdbCollectionRequest collectionRequest() {
         GetVikingdbCollectionRequest request = new GetVikingdbCollectionRequest().collectionName(collectionName);
         if (projectName != null) request.projectName(projectName);
         return request;
     }
 
-    /** 构造控制面 "get index" 探测请求；当 {@link #projectName} 非空时附加。 */
+    /**
+     * 构造控制面 "get index" 探测请求；当 {@link #projectName} 非空时附加。
+     */
     private GetVikingdbIndexRequest indexRequest() {
         GetVikingdbIndexRequest request = new GetVikingdbIndexRequest().collectionName(collectionName).indexName(indexName);
         if (projectName != null) request.projectName(projectName);
@@ -294,20 +352,17 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      * collection 字段声明的单行工厂；保留字段与用户声明的 metadata 字段均使用。
      */
     private static FieldForCreateVikingdbCollectionInput field(String name,
-            FieldForCreateVikingdbCollectionInput.FieldTypeEnum type, boolean primaryKey) {
+                                                               FieldForCreateVikingdbCollectionInput.FieldTypeEnum type, boolean primaryKey) {
         return new FieldForCreateVikingdbCollectionInput().fieldName(name).fieldType(type).isPrimaryKey(primaryKey);
     }
 
     /**
-     * 构造全新的 index create 请求，使用 HNSW + cosine 距离。选择 cosine 与
-     * {@link #doSimilaritySearch} 默认 score 解释一致；HNSW 是 VikingDB 对通用
-     * 向量负载的推荐默认。
+     * 构造全新的 index create 请求。默认仍使用 HNSW + cosine，只有调用方显式
+     * 设置 {@link #indexVectorOptions} 时才改变索引形态或调优参数。
      */
     private CreateVikingdbIndexRequest createIndexRequest() {
         CreateVikingdbIndexRequest request = new CreateVikingdbIndexRequest().collectionName(collectionName).indexName(indexName)
-                .vectorIndex(new VectorIndexForCreateVikingdbIndexInput()
-                        .indexType(VectorIndexForCreateVikingdbIndexInput.IndexTypeEnum.HNSW)
-                        .distance(VectorIndexForCreateVikingdbIndexInput.DistanceEnum.COSINE));
+                .vectorIndex(VikingDbIndexRequestMapper.mapVector(indexVectorOptions));
         if (projectName != null) request.projectName(projectName);
         if (description != null) request.description(description);
         if (shardCount != null) request.shardCount(shardCount);
@@ -321,8 +376,8 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      * 构造记录、发送。
      *
      * @param documents 待摄入的 Spring AI 文档。{@code null} 或空输入为 no-op。
-     * @throws IllegalArgumentException 当任一文档携带未声明的 metadata。
-     * @throws IllegalStateException   当嵌入模型返回数量与 chunk 大小不匹配（调用方与 provider 不一致）。
+     * @throws IllegalArgumentException     当任一文档携带未声明的 metadata。
+     * @throws IllegalStateException        当嵌入模型返回数量与 chunk 大小不匹配（调用方与 provider 不一致）。
      * @throws VikingDbVectorStoreException 当任一 batch upsert 失败。
      */
     @Override
@@ -343,6 +398,42 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
             }
             upsertBatch(dataBatch, from, to);
         }
+    }
+
+    @Override
+    public void upsertRecords(@Nonnull List<VikingDbDocumentRecord> records) {
+        Assert.notNull(records, "records must not be null");
+        if (records.isEmpty()) return;
+        for (int from = 0; from < records.size(); from += MAX_UPSERT_BATCH_SIZE) {
+            int to = Math.min(from + MAX_UPSERT_BATCH_SIZE, records.size());
+            List<Map<String, Object>> dataBatch = records.subList(from, to).stream()
+                    .map(this::toVikingRecord).toList();
+            upsertBatch(dataBatch, from, to);
+        }
+    }
+
+    private Map<String, Object> toVikingRecord(VikingDbDocumentRecord record) {
+        Assert.notNull(record, "record must not be null");
+        if (record.id() == null) throw new IllegalArgumentException("record id must not be null");
+        if (record.denseVector().size() != embeddingDimension) {
+            throw new IllegalArgumentException("Record dense vector dimension does not match configured dimension");
+        }
+        for (Float value : record.denseVector()) {
+            if (value == null || !Float.isFinite(value)) {
+                throw new IllegalArgumentException("Record dense vector must contain finite values");
+            }
+        }
+        for (String fieldName : record.metadata().keySet()) {
+            if (!metadataFields.containsKey(fieldName)) {
+                throw new IllegalArgumentException("Metadata field is not declared in VikingDB schema: " + fieldName);
+            }
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put(DOC_ID_FIELD_NAME, record.id());
+        data.put(CONTENT_FIELD_NAME, record.content() == null ? "" : record.content());
+        data.put(EMBEDDING_FIELD_NAME, record.denseVector());
+        data.putAll(record.metadata());
+        return data;
     }
 
     /**
@@ -407,6 +498,45 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
         }
     }
 
+    @Override
+    public void deleteByIds(@Nonnull List<Object> ids) {
+        Assert.notNull(ids, "id list must not be null");
+        if (ids.isEmpty()) return;
+        for (int from = 0; from < ids.size(); from += MAX_DELETE_BATCH_SIZE) {
+            int to = Math.min(from + MAX_DELETE_BATCH_SIZE, ids.size());
+            try {
+                assertSuccess(dataPlane.deleteData(DeleteDataRequest.builder().collectionName(collectionName)
+                        .ids(new ArrayList<>(ids.subList(from, to))).build()), "deleteData");
+            } catch (ApiClientException | VectorApiException ex) {
+                throw new VikingDbVectorStoreException("deleteData batch [" + from + ',' + to + ')', collectionName, ex);
+            }
+        }
+    }
+
+    @Override
+    public VikingDbFetchResponse fetchByIds(@Nonnull List<Object> ids, List<String> requestedFields,
+                                            String partition) {
+        Assert.notNull(ids, "id list must not be null");
+        Assert.notEmpty(ids, "id list must not be empty");
+        FetchDataInIndexRequest.FetchDataInIndexRequestBuilder<?, ?> builder = FetchDataInIndexRequest.builder()
+                .collectionName(collectionName).indexName(indexName).ids(new ArrayList<>(ids));
+        if (requestedFields != null && !requestedFields.isEmpty()) builder.outputFields(List.copyOf(requestedFields));
+        if (partition != null) builder.partition(partition);
+        try {
+            DataApiResponse<FetchDataInIndexResult> response = dataPlane.fetchDataInIndex(builder.build());
+            assertSuccess(response, "fetchDataInIndex");
+            FetchDataInIndexResult result = response.getResult();
+            List<VikingDbFetchResponse.VikingDbFetchedRecord> records = result == null || result.getFetch() == null
+                    ? List.of() : result.getFetch().stream()
+                    .map(item -> new VikingDbFetchResponse.VikingDbFetchedRecord(item.getId(), item.getFields(),
+                            item.getDenseVector(), item.getSparseVector())).toList();
+            return new VikingDbFetchResponse(response.getRequestId(), records,
+                    result == null ? List.of() : result.getIdsNotExist());
+        } catch (ApiClientException | VectorApiException ex) {
+            throw new VikingDbVectorStoreException("fetchDataInIndex", collectionName, ex);
+        }
+    }
+
     /**
      * Spring AI filter-delete 入口。委托给 {@link #deleteByFilter(Filter.Expression)}；
      * 返回的 taskId 被丢弃，因为 Spring AI 契约为 {@code void}。
@@ -425,10 +555,11 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      * @param expression 待删除文档的 Spring AI filter。
      * @return 服务端异步任务的 taskId。
      * @throws UnsupportedOperationException 当控制面 SDK 不可用。
-     * @throws VikingDbVectorStoreException 当控制面调用失败。
+     * @throws VikingDbVectorStoreException  当控制面调用失败。
      */
     public String deleteByFilter(@Nonnull Filter.Expression expression) {
-        if (controlPlane == null) throw new UnsupportedOperationException("Deleting by filter requires a VikingDB control-plane client");
+        if (controlPlane == null)
+            throw new UnsupportedOperationException("Deleting by filter requires a VikingDB control-plane client");
         try {
             CreateVikingdbTaskRequest request = new CreateVikingdbTaskRequest().collectionName(collectionName)
                     .taskType(CreateVikingdbTaskRequest.TaskTypeEnum.FILTER_DELETE)
@@ -452,30 +583,57 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      *
      * @param request Spring AI 搜索请求。必须非空；{@code query} 必须非空字符串。
      * @return 按相似度降序排列的文档，已按 {@link SearchRequest#getSimilarityThreshold()} 过滤。
-     * @throws IllegalArgumentException      当 query 嵌入维度与 {@link #embeddingDimension} 不匹配。
-     * @throws VikingDbVectorStoreException  当搜索请求失败或 SDK 返回非 Success 响应。
+     * @throws IllegalArgumentException     当 query 嵌入维度与 {@link #embeddingDimension} 不匹配。
+     * @throws VikingDbVectorStoreException 当搜索请求失败或 SDK 返回非 Success 响应。
      */
+    @Override
+    public VikingDbSearchResponse search(@Nonnull VikingDbVectorSearchRequest request) {
+        return searchExecutor.execute(request);
+    }
+
+    @Nonnull
+    @Override
+    public VikingDbSearchResponse search(@Nonnull VikingDbKeywordSearchRequest request) {
+        return searchExecutor.execute(request);
+    }
+
+    @Nonnull
+    @Override
+    public VikingDbSearchResponse search(@Nonnull VikingDbMultiModalSearchRequest request) {
+        return searchExecutor.execute(request);
+    }
+
+    @Nonnull
+    @Override
+    public VikingDbRerankResponse rerank(@Nonnull VikingDbRerankRequest request) {
+        return rerankExecutor.execute(request);
+    }
+
     @Nonnull
     @Override
     public List<Document> doSimilaritySearch(@Nonnull SearchRequest request) {
         Assert.notNull(request, "search request must not be null");
         float[] embedding = embeddingModel.embed(request.getQuery());
-        if (embedding.length != embeddingDimension) throw new IllegalArgumentException("Query embedding dimension does not match configured dimension");
-        SearchByVectorRequest.SearchByVectorRequestBuilder<?, ?> builder = SearchByVectorRequest.builder()
-                .collectionName(collectionName).indexName(indexName).denseVector(floats(embedding)).limit(request.getTopK())
-                .outputFields(outputFields);
-        if (request.hasFilterExpression()) builder.filter(filterExpressionConverter.convert(request.getFilterExpression()));
-        try {
-            DataApiResponse<SearchResult> response = dataPlane.searchByVector(builder.build());
-            assertSuccess(response, "searchByVector");
-            if (response.getResult() == null || response.getResult().getData() == null) return List.of();
-            double threshold = request.getSimilarityThreshold();
-            return response.getResult().getData().stream()
-                    .filter(item -> item.getScore() == null || item.getScore() >= threshold)
-                    .map(this::toDocument).toList();
-        } catch (ApiClientException | VectorApiException ex) {
-            throw new VikingDbVectorStoreException("searchByVector", collectionName, ex);
-        }
+        if (embedding.length != embeddingDimension)
+            throw new IllegalArgumentException("Query embedding dimension does not match configured dimension");
+        VikingDbVectorSearchRequest vectorRequest = VikingDbVectorSearchRequest.builder()
+                .target(boundTarget).mode(VikingDbVectorSearchRequest.Mode.DENSE).denseVector(embedding)
+                .queryFilter(request.hasFilterExpression() ? request.getFilterExpression() : null)
+                .common(VikingDbSearchCommonOptions.builder().limit(request.getTopK()).outputFields(outputFields).build())
+                .build();
+        VikingDbSearchResponse response = search(vectorRequest);
+        double threshold = request.getSimilarityThreshold();
+        return response.hits().stream()
+                .filter(hit -> hit.score() == null || hit.score() >= threshold)
+                .map(hit -> Document.builder().id(hit.id()).text(String.valueOf(hit.fields().getOrDefault(CONTENT_FIELD_NAME, "")))
+                        .metadata(withoutContent(hit.fields())).score(hit.score()).build())
+                .toList();
+    }
+
+    private static Map<String, Object> withoutContent(Map<String, Object> fields) {
+        Map<String, Object> metadata = new LinkedHashMap<>(fields);
+        metadata.remove(CONTENT_FIELD_NAME);
+        return metadata;
     }
 
     /**
@@ -533,7 +691,8 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      * 构造 Micrometer observation context，附带 VikingDB provider 名、目标 collection
      * 与 embedding dimension —— 运维在观察 Spring AI vector-store 流量时最常聚合的字段。
      */
-    @Nonnull @Override
+    @Nonnull
+    @Override
     public VectorStoreObservationContext.Builder createObservationContextBuilder(@Nonnull String operationName) {
         return VectorStoreObservationContext.builder(VIKINGDB_PROVIDER_NAME, operationName)
                 .collectionName(collectionName).dimensions(embeddingDimension);
@@ -545,7 +704,24 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      *
      * @return 持有数据面 client 的非空 Optional。
      */
-    @Nonnull public Optional<VectorService> getNativeClient() { return Optional.of(dataPlane); }
+    @Nonnull
+    public Optional<VectorService> getNativeClient() {
+        return Optional.of(dataPlane);
+    }
+
+    /**
+     * Returns the control-plane lifecycle facade when this Store was created with one.
+     * API-key-only data-plane usage intentionally has no index-management capability.
+     */
+    @Nonnull
+    public Optional<VikingDbIndexOperations> getIndexOperations() {
+        return Optional.ofNullable(indexOperations);
+    }
+
+    @Nonnull
+    public Optional<VikingDbCollectionOperations> getCollectionOperations() {
+        return Optional.ofNullable(collectionOperations);
+    }
 
     /**
      * {@link VikingDbVectorStore} 的流式 Builder。除构造器要求的 {@code embeddingModel}
@@ -553,30 +729,58 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
      * 字段文档一致；细节参见各 setter。
      */
     public static final class Builder extends AbstractVectorStoreBuilder<Builder> {
-        /** 数据面 SDK；构造器设置，必填且非空。 */
+        /**
+         * 数据面 SDK；构造器设置，必填且非空。
+         */
         private final VectorService dataPlane;
-        /** 可选控制面 SDK，用于 schema 初始化与 filter-delete。 */
+        /**
+         * 可选控制面 SDK，用于 schema 初始化与 filter-delete。
+         */
         private VikingdbApi controlPlane;
-        /** 默认 {@link VikingDbVectorStore#DEFAULT_COLLECTION_NAME}。 */
+        /**
+         * 默认 {@link VikingDbVectorStore#DEFAULT_COLLECTION_NAME}。
+         */
         private String collectionName = DEFAULT_COLLECTION_NAME;
-        /** 默认与 {@link #collectionName} 相同。 */
+        /**
+         * 默认与 {@link #collectionName} 相同。
+         */
         private String indexName = DEFAULT_COLLECTION_NAME;
-        /** 默认 {@link VikingDbVectorStore#OPENAI_EMBEDDING_DIMENSION_SIZE}（1536）。 */
+        /**
+         * 默认 {@link VikingDbVectorStore#OPENAI_EMBEDDING_DIMENSION_SIZE}（1536）。
+         */
         private int embeddingDimension = OPENAI_EMBEDDING_DIMENSION_SIZE;
-        /** 默认 {@code false}；设为 true 在启动期启用 schema 初始化。 */
+        /**
+         * 默认 {@code false}；设为 true 在启动期启用 schema 初始化。
+         */
         private boolean initializeSchema;
-        /** 默认新建 {@link VikingDbFilterExpressionConverter}；可替换以自定义。 */
+        /**
+         * 默认新建 {@link VikingDbFilterExpressionConverter}；可替换以自定义。
+         */
         private VikingDbFilterExpressionConverter filterExpressionConverter = new VikingDbFilterExpressionConverter();
-        /** 可选 VikingDB project 名；{@code null} 表示默认 project。 */
+        /**
+         * 可选 VikingDB project 名；{@code null} 表示默认 project。
+         */
         private String projectName;
-        /** 应用于 collection 与 index 的可选描述。 */
+        /**
+         * 应用于 collection 与 index 的可选描述。
+         */
         private String description;
-        /** 可选 index 分片数；{@code null} 走 VikingDB 默认。 */
+        /**
+         * 可选 index 分片数；{@code null} 走 VikingDB 默认。
+         */
         private Integer shardCount;
-        /** 默认空列表；复制在构造器中完成。 */
+        /**
+         * 默认空列表；复制在构造器中完成。
+         */
         private List<String> scalarIndex = List.of();
-        /** 默认空 map；复制在构造器中完成。 */
+        /**
+         * 默认空 map；复制在构造器中完成。
+         */
         private Map<String, FieldForCreateVikingdbCollectionInput.FieldTypeEnum> metadataFields = Map.of();
+        private VikingDbFilterValidationMode filterValidationMode = VikingDbFilterValidationMode.DECLARED_FIELDS;
+        private VikingDbSearchCommonOptions searchDefaults = VikingDbSearchCommonOptions.empty();
+        private VikingDbSearchAdvanceOptions searchAdvanceDefaults = VikingDbSearchAdvanceOptions.empty();
+        private VikingDbIndexVectorOptions indexVectorOptions = VikingDbIndexVectorOptions.defaults();
 
         /**
          * @param embeddingModel Spring AI 嵌入模型，upsert 与 search 使用。
@@ -588,48 +792,163 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore im
             Assert.notNull(dataPlane, "dataPlane must not be null");
             this.dataPlane = dataPlane;
         }
-        /** @param value VikingDB collection 名；默认 {@code "vector_store"}。 */
-        public Builder collectionName(String value) { this.collectionName = value; return this; }
-        /** @param value VikingDB index 名；默认与 collection 同名。 */
-        public Builder indexName(String value) { this.indexName = value; return this; }
-        /** @param value 嵌入向量维度；须与上游模型匹配。 */
-        public Builder embeddingDimension(int value) { this.embeddingDimension = value; return this; }
+
+        /**
+         * @param value VikingDB collection 名；默认 {@code "vector_store"}。
+         */
+        public Builder collectionName(String value) {
+            this.collectionName = value;
+            return this;
+        }
+
+        /**
+         * @param value VikingDB index 名；默认与 collection 同名。
+         */
+        public Builder indexName(String value) {
+            this.indexName = value;
+            return this;
+        }
+
+        /**
+         * @param value 嵌入向量维度；须与上游模型匹配。
+         */
+        public Builder embeddingDimension(int value) {
+            this.embeddingDimension = value;
+            return this;
+        }
+
         /**
          * @param value {@code true} 在启动期创建 collection 与 index；{@code false} 假设 schema 已存在。
          *              默认 {@code false}。
          */
-        public Builder initializeSchema(boolean value) { this.initializeSchema = value; return this; }
+        public Builder initializeSchema(boolean value) {
+            this.initializeSchema = value;
+            return this;
+        }
+
         /**
          * @param value 可选控制面 SDK，用于 schema 初始化与服务端 filter-delete。
          *              {@code null} 同时禁用两项能力，仅产生告警日志。
          */
-        public Builder controlPlane(VikingdbApi value) { this.controlPlane = value; return this; }
-        /** @param value 火山引擎 project 名；{@code null} 表示默认 project。 */
-        public Builder projectName(String value) { this.projectName = value; return this; }
-        /** @param value 应用于 collection 与 index 的描述。 */
-        public Builder description(String value) { this.description = value; return this; }
-        /** @param value index 分片数；{@code null} 走 VikingDB 默认。 */
-        public Builder shardCount(Integer value) { this.shardCount = value; return this; }
+        public Builder controlPlane(VikingdbApi value) {
+            this.controlPlane = value;
+            return this;
+        }
+
+        /**
+         * @param value 火山引擎 project 名；{@code null} 表示默认 project。
+         */
+        public Builder projectName(String value) {
+            this.projectName = value;
+            return this;
+        }
+
+        /**
+         * @param value 应用于 collection 与 index 的描述。
+         */
+        public Builder description(String value) {
+            this.description = value;
+            return this;
+        }
+
+        /**
+         * @param value index 分片数；{@code null} 走 VikingDB 默认。
+         */
+        public Builder shardCount(Integer value) {
+            this.shardCount = value;
+            return this;
+        }
+
         /**
          * @param value 除向量索引外还需标量索引支撑的字段名。每一项必须在
          *              {@link #metadataFields(Map)} 中声明；在
          *              {@link VikingDbVectorStore#validateConfiguration()} 校验。
          */
-        public Builder scalarIndex(List<String> value) { this.scalarIndex = value == null ? List.of() : value; return this; }
+        public Builder scalarIndex(List<String> value) {
+            this.scalarIndex = value == null ? List.of() : value;
+            return this;
+        }
+
         /**
          * @param value 文档 metadata 的 schema 声明。携带未声明键的文档会在 upsert 时被拒绝。
          *              VECTOR 类型条目被拒绝 —— vector 字段需要本 schema 无法承载的 dimension。
          */
-        public Builder metadataFields(Map<String, FieldForCreateVikingdbCollectionInput.FieldTypeEnum> value) { this.metadataFields = value == null ? Map.of() : value; return this; }
-        /** @param value 自定义 filter 转换器；默认新建 {@link VikingDbFilterExpressionConverter}。 */
-        public Builder filterExpressionConverter(VikingDbFilterExpressionConverter value) { this.filterExpressionConverter = value; return this; }
-        /** @param value 透传给父类 Spring AI Builder 的 Micrometer observation registry。 */
-        @Override public Builder observationRegistry(@Nonnull ObservationRegistry value) { super.observationRegistry(value); return this; }
-        /** @param value 透传给父类 Spring AI Builder 的批处理策略。 */
-        @Override public Builder batchingStrategy(@Nonnull BatchingStrategy value) { super.batchingStrategy(value); return this; }
-        /** @return 一个完整校验、不可变的 {@link VikingDbVectorStore}。 */
-        public VikingDbVectorStore build() { return new VikingDbVectorStore(this); }
-        /** @return 本 builder，用于满足 Spring AI 自类型父 Builder 契约。 */
-        @Override protected Builder self() { return this; }
+        public Builder metadataFields(Map<String, FieldForCreateVikingdbCollectionInput.FieldTypeEnum> value) {
+            this.metadataFields = value == null ? Map.of() : value;
+            return this;
+        }
+
+        /**
+         * @param value 自定义 filter 转换器；默认新建 {@link VikingDbFilterExpressionConverter}。
+         */
+        public Builder filterExpressionConverter(VikingDbFilterExpressionConverter value) {
+            this.filterExpressionConverter = value;
+            return this;
+        }
+
+        /**
+         * Filter validation defaults to schema-declared fields for compatibility.
+         */
+        public Builder filterValidationMode(VikingDbFilterValidationMode value) {
+            this.filterValidationMode = value == null ? VikingDbFilterValidationMode.DECLARED_FIELDS : value;
+            return this;
+        }
+
+        /**
+         * Optional Store-level defaults; null fields remain provider defaults.
+         */
+        public Builder searchDefaults(VikingDbSearchCommonOptions value) {
+            this.searchDefaults = value == null ? VikingDbSearchCommonOptions.empty() : value;
+            return this;
+        }
+
+        /**
+         * Optional Store-level VikingDB SearchAdvance defaults.
+         */
+        public Builder searchAdvanceDefaults(VikingDbSearchAdvanceOptions value) {
+            this.searchAdvanceDefaults = value == null ? VikingDbSearchAdvanceOptions.empty() : value;
+            return this;
+        }
+
+        /**
+         * Optional vector index definition; defaults to the legacy HNSW/COSINE/FLOAT shape.
+         */
+        public Builder indexVectorOptions(VikingDbIndexVectorOptions value) {
+            this.indexVectorOptions = value == null ? VikingDbIndexVectorOptions.defaults() : value;
+            return this;
+        }
+
+        /**
+         * @param value 透传给父类 Spring AI Builder 的 Micrometer observation registry。
+         */
+        @Override
+        public Builder observationRegistry(@Nonnull ObservationRegistry value) {
+            super.observationRegistry(value);
+            return this;
+        }
+
+        /**
+         * @param value 透传给父类 Spring AI Builder 的批处理策略。
+         */
+        @Override
+        public Builder batchingStrategy(@Nonnull BatchingStrategy value) {
+            super.batchingStrategy(value);
+            return this;
+        }
+
+        /**
+         * @return 一个完整校验、不可变的 {@link VikingDbVectorStore}。
+         */
+        public VikingDbVectorStore build() {
+            return new VikingDbVectorStore(this);
+        }
+
+        /**
+         * @return 本 builder，用于满足 Spring AI 自类型父 Builder 契约。
+         */
+        @Override
+        protected Builder self() {
+            return this;
+        }
     }
 }

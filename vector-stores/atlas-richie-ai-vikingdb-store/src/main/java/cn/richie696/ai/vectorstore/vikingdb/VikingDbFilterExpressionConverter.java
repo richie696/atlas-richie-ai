@@ -10,13 +10,11 @@ import org.springframework.ai.vectorstore.filter.FilterExpressionConverter;
 import org.springframework.util.Assert;
 
 import javax.annotation.Nonnull;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-/** 将 Spring AI 过滤器转换为 VikingDB 原生的 scalar-filter 对象模型。 */
+/**
+ * 将 Spring AI 过滤器转换为 VikingDB 原生的 scalar-filter 对象模型。
+ */
 public final class VikingDbFilterExpressionConverter implements FilterExpressionConverter {
 
     private static final Gson GSON = new Gson();
@@ -38,12 +36,43 @@ public final class VikingDbFilterExpressionConverter implements FilterExpression
      *
      * @param expression Spring AI 过滤器表达式。不能为 null。
      * @return 由 VikingDB 的 {@code op / conds / field / range} 操作符消费的嵌套
-     *         {@code Map}/{@code List} 结构。
+     * {@code Map}/{@code List} 结构。
      * @throws IllegalArgumentException 若表达式含有 VikingDB 无法表达的操作（如 {@code CONTAINS}）。
      */
     public Map<String, Object> convert(Filter.Expression expression) {
         Assert.notNull(expression, "filter expression must not be null");
         return convertExpressionNode(expression);
+    }
+
+    /**
+     * Combines infrastructure constraints and caller constraints without allowing the
+     * caller expression to replace the mandatory expression. A null operand is ignored.
+     */
+    public Filter.Expression combineAnd(Filter.Expression mandatory, Filter.Expression query) {
+        if (mandatory == null) return query;
+        if (query == null) return mandatory;
+        return new Filter.Expression(Filter.ExpressionType.AND, mandatory, query);
+    }
+
+    /**
+     * Returns every field referenced by a filter tree, preserving traversal order.
+     */
+    public Set<String> collectFieldNames(Filter.Expression expression) {
+        Set<String> result = new java.util.LinkedHashSet<>();
+        collectFieldNames(expression, result);
+        return result;
+    }
+
+    private void collectFieldNames(Filter.Expression expression, Set<String> result) {
+        if (expression == null) return;
+        collectFieldNames(expression.left(), result);
+        collectFieldNames(expression.right(), result);
+    }
+
+    private void collectFieldNames(Filter.Operand operand, Set<String> result) {
+        if (operand instanceof Filter.Key key) result.add(key.key());
+        if (operand instanceof Filter.Expression expression) collectFieldNames(expression, result);
+        if (operand instanceof Filter.Group group) collectFieldNames(group.content(), result);
     }
 
     /**
@@ -65,7 +94,8 @@ public final class VikingDbFilterExpressionConverter implements FilterExpression
             // AbstractFilterExpressionConverter normally rewrites NOT. Do it here as
             // well because this converter deliberately exposes the native Map API.
             case NOT -> negate(expression);
-            default -> throw new IllegalArgumentException("VikingDB does not support filter operation: " + expression.type());
+            default ->
+                    throw new IllegalArgumentException("VikingDB does not support filter operation: " + expression.type());
         };
     }
 
@@ -129,13 +159,17 @@ public final class VikingDbFilterExpressionConverter implements FilterExpression
         throw new IllegalArgumentException("Expected a filter expression, got: " + operand);
     }
 
-    /** 从 {@link Filter.Key} 提取字段名；其他操作数形态视为 bug。 */
+    /**
+     * 从 {@link Filter.Key} 提取字段名；其他操作数形态视为 bug。
+     */
     private static String key(Filter.Operand operand) {
         if (operand instanceof Filter.Key key) return key.key();
         throw new IllegalArgumentException("Expected a filter key, got: " + operand);
     }
 
-    /** 从 {@link Filter.Value} 提取比较值；其他操作数形态视为 bug。 */
+    /**
+     * 从 {@link Filter.Value} 提取比较值；其他操作数形态视为 bug。
+     */
     private static Object value(Filter.Operand operand) {
         if (operand instanceof Filter.Value value) return value.value();
         throw new IllegalArgumentException("Expected a filter value, got: " + operand);

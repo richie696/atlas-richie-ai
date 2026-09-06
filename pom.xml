@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.0</version>
+        <version>4.1.0</version>
         <relativePath/>
     </parent>
 
@@ -17,7 +17,9 @@
     <packaging>pom</packaging>
 
     <name>Atlas Richie AI Parent</name>
-    <description>Atlas Richie AI 扩展聚合父 POM —— 串联各 Spring AI 适配器模块（vikingdb vector store、Kafka 等）的 BOM 与发布元数据。</description>
+    <description>Atlas Richie AI 扩展聚合父 POM —— 串联各 Spring AI 适配器模块（vikingdb vector store、Kafka 等）的 BOM
+        与发布元数据。
+    </description>
 
     <url>https://github.com/richie696/atlas-richie-ai</url>
 

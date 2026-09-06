@@ -34,29 +34,60 @@ public class VikingDbClientProperties {
 
     public static final String CONFIG_PREFIX = "spring.ai.vectorstore.vikingdb.client";
 
-    /** 数据面 host（不含 scheme），例如 {@code api-vikingdb.vikingdb.cn-beijing.volces.com} */
+    /**
+     * 数据面 host（不含 scheme），例如 {@code api-vikingdb.vikingdb.cn-beijing.volces.com}
+     */
     private String host;
 
-    /** 控制面 endpoint（不带 scheme），例如 {@code vikingdb.cn-beijing.volcengineapi.com} */
+    /**
+     * 控制面 endpoint（不带 scheme），例如 {@code vikingdb.cn-beijing.volcengineapi.com}
+     */
     private String controlEndpoint;
 
-    /** 区域，例如 {@code cn-beijing}。数据面 + 控制面共用 */
+    /**
+     * 区域，例如 {@code cn-beijing}。数据面 + 控制面共用
+     */
     private String region;
 
-    /** 访问 AK（IAM Access Key） */
+    /**
+     * 访问 AK（IAM Access Key）
+     */
     private String accessKey;
 
-    /** 访问 SK（IAM Secret Key） */
+    /**
+     * 访问 SK（IAM Secret Key）
+     */
     private String secretKey;
 
-    /** Scheme（默认 HTTPS） */
+    /**
+     * Data-plane authentication mode; AK_SK preserves the existing default.
+     */
+    private VikingDbAuthenticationMode authenticationMode = VikingDbAuthenticationMode.AK_SK;
+
+    /**
+     * Data-plane API key, used when authenticationMode=API_KEY.
+     */
+    private String apiKey;
+
+    /**
+     * Scheme（默认 HTTPS）
+     */
     private String scheme = "HTTPS";
 
-    /** 连接超时（毫秒） */
+    /**
+     * 连接超时（毫秒）
+     */
     private long connectTimeoutMs = 10_000L;
 
-    /** 读超时（毫秒） */
+    /**
+     * 读超时（毫秒）
+     */
     private long readTimeoutMs = 30_000L;
+
+    /**
+     * Write timeout (milliseconds).
+     */
+    private long writeTimeoutMs = 30_000L;
 
     public void setAccessKey(String accessKey) {
         Assert.hasText(accessKey, "VikingDB access key must not be blank");
@@ -66,5 +97,10 @@ public class VikingDbClientProperties {
     public void setSecretKey(String secretKey) {
         Assert.hasText(secretKey, "VikingDB secret key must not be blank");
         this.secretKey = secretKey;
+    }
+
+    public void setApiKey(String apiKey) {
+        Assert.hasText(apiKey, "VikingDB API key must not be blank");
+        this.apiKey = apiKey;
     }
 }
