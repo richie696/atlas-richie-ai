@@ -15,36 +15,39 @@
 1. Fork 仓库并创建特性分支（如 `feature/<name>` 或 `fix/<name>`）。
 2. 本地开发与自测，避免引入构建失败。
 3. 提交 Pull Request，说明：
-   - 动机
-   - 主要变更
-   - 验证方式
-   - 兼容性影响（如有）
+    - 动机
+    - 主要变更
+    - 验证方式
+    - 兼容性影响（如有）
 4. 根据评审反馈迭代直至合并。
 
 ## 提交规范
 
-- 使用清晰、命令式的提交信息，先解释**为什么**再说**做了什么**。
+- 使用清晰、命令式的提交信息，先解释 **为什么**再说 **做了什么**。
 - 修改公共 API、配置或行为时同步更新 README 或模块文档。
 - 新增配置项必须有合理默认值与示例，避免破坏现有用户。
 
 ## 代码风格
 
-- 所有 public 类、字段、方法均带**中文 Javadoc**（`@param` / `@return` / `@throws`）。
+- 所有 public 类、字段、方法均带 **中文 Javadoc**（`@param` / `@return` / `@throws`）。
 - 遵循已有模块结构 —— 每个 Spring AI 适配器都以 4 模块形式交付：
-  - `*-store`（`VectorStore` 实现）
-  - `*-autoconfigure-*`（Spring Boot 自动装配）
-  - `*-starter`（BOM 风格便捷启动器）
-  - `*-bom`（可选，仅当父 POM 管理多个适配器时存在）
+    - `*-store`（`VectorStore` 实现）
+    - `*-autoconfigure-*`（Spring Boot 自动装配）
+    - `*-starter`（BOM 风格便捷启动器）
+    - `*-bom`（可选，仅当父 POM 管理多个适配器时存在）
 - 一个 VectorStore 对应一个顶级包；适配器之间不互相依赖。
 
 ## 行为准则与安全
 
-- 保持专业、尊重、建设性。参见 [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) / [CODE_OF_CONDUCT.zh.md](./CODE_OF_CONDUCT.zh.md)。
+-
+保持专业、尊重、建设性。参见 [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) / [CODE_OF_CONDUCT.zh.md](./CODE_OF_CONDUCT.zh.md)。
 - **不要**公开披露安全问题。遵循 [SECURITY.md](./SECURITY.md) / [SECURITY.zh.md](./SECURITY.zh.md)。
 
 ## 本地构建
 
-本项目要求 **Maven 3.9+ 或 Maven 4.0+**（使用 `<modelVersion>4.0.0` + 硬编码 `<version>1.0.0-SNAPSHOT</version>`）。**部署到 CNB 推荐 Maven 3.9.x** —— Maven 4.0.0-RC5 的 JdkTransporter 与 CNB 的 401 响应（无 `WWW-Authenticate` 头）有 auth-flow 兼容问题。
+本项目要求 **Maven 3.9+ 或 Maven 4.0+**（使用 `<modelVersion>4.0.0` + 硬编码 `<version>1.0.0-SNAPSHOT</version>`）。 **部署到
+CNB 推荐 Maven 3.9.x** —— Maven 4.0.0-RC5 的 JdkTransporter 与 CNB 的 401 响应（无 `WWW-Authenticate` 头）有 auth-flow
+兼容问题。
 
 ```bash
 # 单模块单元测试
@@ -85,17 +88,18 @@ Windows / IDEA 用户：`scripts\release.bat <mode>` —— 行为一致。
 
 服务器凭据（`~/.m2/settings.xml`）需要三组 `<server>` 条目：
 
-| `<server><id>` | 用途 |
-|---|---|
-| `richie696-repo-richie-snapshot` | CNB SNAPSHOT 仓库 |
-| `richie696-repo-richie-release` | CNB release 仓库 |
-| `central` | Sonatype Central Portal |
+| `<server><id>`                   | 用途                    |
+|----------------------------------|-------------------------|
+| `richie696-repo-richie-snapshot` | CNB SNAPSHOT 仓库       |
+| `richie696-repo-richie-release`  | CNB release 仓库        |
+| `central`                        | Sonatype Central Portal |
 
 外加 `setup-gpg.sh` 生成的 `gpg` profile（`<gpg.keyname>` + `<gpg.passphrase>`）。
 
 ### 为什么用脚本而不是直接 `mvn deploy`？
 
-IDEA 自带的打包器无法传 Maven 参数（`-Dgpg.skip=true` / `-Dmaven.deploy.skip=true`）。脚本把这些开关固化下来，确保不会漏。`release.sh` 还做：
+IDEA 自带的打包器无法传 Maven 参数（`-Dgpg.skip=true` / `-Dmaven.deploy.skip=true`）。脚本把这些开关固化下来，确保不会漏。
+`release.sh` 还做：
 
 - 检查 `mvn` 和 `gpg` 在 `PATH` 里
 - 按模式选用正确的开关组合

@@ -6,16 +6,18 @@
 
 The following versions currently receive security updates (patches and fixes):
 
-| Version   | Supported          |
-|-----------|--------------------|
-| 1.0.x     | :white_check_mark: |
-| < 1.0     | :x:                |
+| Version | Supported          |
+|---------|--------------------|
+| 1.0.x   | :white_check_mark: |
+| < 1.0   | :x:                |
 
-> The current development baseline is `1.0.0-SNAPSHOT`. Official security advisories are based on published release tags.
+> The current development baseline is `1.0.0-SNAPSHOT`. Official security advisories are based on published release
+> tags.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in **Atlas Richie AI**, please **do not** disclose exploit details, PoCs, or sensitive data in public Issues, Discussions, or Pull Requests.
+If you discover a security vulnerability in **Atlas Richie AI**, please **do not** disclose exploit details, PoCs, or
+sensitive data in public Issues, Discussions, or Pull Requests.
 
 Report privately via either:
 
@@ -37,13 +39,15 @@ Please include when possible:
 
 - **Acknowledgement**: We aim to confirm receipt within **5 business days**.
 - **Assessment & fix**: We prioritize fixes by severity and publish patch releases when ready.
-- **Coordinated disclosure**: After a fix is available, we will coordinate public disclosure (e.g. GitHub Security Advisory and `CHANGELOG.md`).
+- **Coordinated disclosure**: After a fix is available, we will coordinate public disclosure (e.g. GitHub Security
+  Advisory and `CHANGELOG.md`).
 
 ## Out of Scope
 
 The following are generally **not** in scope for this repository's security response:
 
-- Issues in upstream Spring AI, Volcano Engine VikingDB SDKs, or other third-party dependencies (track upstream; we follow)
+- Issues in upstream Spring AI, Volcano Engine VikingDB SDKs, or other third-party dependencies (track upstream; we
+  follow)
 - Deployment misconfiguration such as missing TLS / weak IAM credentials (harden in your deployment docs)
 - Sample / demo configurations under `target/test-classes`
 

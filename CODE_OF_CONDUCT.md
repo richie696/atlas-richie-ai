@@ -4,7 +4,10 @@
 
 ## Our Pledge
 
-We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion, or sexual identity and orientation.
+We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for
+everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity
+and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion,
+or sexual identity and orientation.
 
 We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
 
@@ -28,18 +31,24 @@ Examples of unacceptable behavior:
 
 ## Enforcement Responsibilities
 
-Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior and will take appropriate and fair corrective action in response to any behavior that they deem inappropriate, threatening, offensive, or harmful.
+Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior and will take
+appropriate and fair corrective action in response to any behavior that they deem inappropriate, threatening, offensive,
+or harmful.
 
 ## Scope
 
-This Code of Conduct applies within all community spaces, and also applies when an individual is officially representing the community in public spaces (e.g. via official email, social media, or as an appointed representative at an event).
+This Code of Conduct applies within all community spaces, and also applies when an individual is officially representing
+the community in public spaces (e.g. via official email, social media, or as an appointed representative at an event).
 
 ## Enforcement
 
 Report unacceptable behavior to the maintainers at **richie696@icloud.com**.  
-All complaints will be reviewed and investigated promptly and fairly. Maintainers are obligated to respect the privacy and security of reporters. See the [Contributor Covenant FAQ](https://www.contributor-covenant.org/faq) for enforcement guidelines.
+All complaints will be reviewed and investigated promptly and fairly. Maintainers are obligated to respect the privacy
+and security of reporters. See the [Contributor Covenant FAQ](https://www.contributor-covenant.org/faq) for enforcement
+guidelines.
 
 ## Attribution
 
-This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1, available at  
+This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1,
+available at  
 https://www.contributor-covenant.org/version/2/1/code_of_conduct.html

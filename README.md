@@ -30,7 +30,7 @@ spring:
           tenant: STRING
           published: BOOL
           created_at: INT64
-        scalar-index: [tenant, published]
+        scalar-index: [ tenant, published ]
         client:
           host: api-vikingdb.vikingdb.cn-beijing.volces.com
           control-endpoint: vikingdb.cn-beijing.volcengineapi.com

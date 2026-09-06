@@ -19,10 +19,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class VikingDbVectorStoreBatchingTests {
 
@@ -35,7 +32,7 @@ class VikingDbVectorStoreBatchingTests {
         when(response.getCode()).thenReturn("Success");
         when(dataPlane.upsertData(any(UpsertDataRequest.class))).thenReturn(response);
         when(embeddingModel.embed(anyList(), any(EmbeddingOptions.class), any(TokenCountBatchingStrategy.class)))
-                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).stream().map(ignored -> new float[] { 1f, 2f })
+                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).stream().map(ignored -> new float[]{1f, 2f})
                         .toList());
 
         VikingDbVectorStore store = new VikingDbVectorStore.Builder(embeddingModel, dataPlane)
