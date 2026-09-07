@@ -46,7 +46,8 @@ import java.util.*;
  */
 @Slf4j
 public final class VikingDbVectorStore extends AbstractObservationVectorStore
-        implements InitializingBean, VikingDbSearchOperations, VikingDbDocumentOperations, VikingDbRerankOperations {
+        implements InitializingBean, VikingDbSearchOperations, VikingDbDocumentOperations, VikingDbRerankOperations,
+        VikingDbPermissionOperations {
 
     public static final String DEFAULT_COLLECTION_NAME = "vector_store";
     public static final int OPENAI_EMBEDDING_DIMENSION_SIZE = 1536;
@@ -721,6 +722,20 @@ public final class VikingDbVectorStore extends AbstractObservationVectorStore
     @Nonnull
     public Optional<VikingDbCollectionOperations> getCollectionOperations() {
         return Optional.ofNullable(collectionOperations);
+    }
+
+    /**
+     * Declares the IAM grants needed by every VikingDB operation this adapter exposes. The method
+     * is intentionally side-effect free: write permissions cannot be safely probed without
+     * creating or mutating a user resource, so an actual permission denial is instead returned as
+     * a structured {@link VikingDbVectorStoreException}.
+     */
+    @Override
+    public List<VikingDbPermissionRequirement> describePermissionRequirements() {
+        return Arrays.stream(VikingDbPermissionOperation.values())
+                .filter(operation -> operation != VikingDbPermissionOperation.UNKNOWN)
+                .map(VikingDbPermissionRequirement::of)
+                .toList();
     }
 
     /**
