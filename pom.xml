@@ -109,6 +109,8 @@
 
     <properties>
         <spring-ai.version>2.0.0</spring-ai.version>
+        <dashvector-java-sdk.version>1.0.21</dashvector-java-sdk.version>
+        <tencent-vectordb-java-sdk.version>2.6.1</tencent-vectordb-java-sdk.version>
     </properties>
 
     <modules>
@@ -116,6 +118,12 @@
         <module>vector-stores/atlas-richie-ai-vikingdb-store</module>
         <module>auto-configurations/vector-stores/atlas-richie-ai-autoconfigure-vector-store-vikingdb</module>
         <module>starters/atlas-richie-ai-starter-vector-store-vikingdb</module>
+        <module>vector-stores/atlas-richie-ai-dashvector-store</module>
+        <module>auto-configurations/vector-stores/atlas-richie-ai-autoconfigure-vector-store-dashvector</module>
+        <module>starters/atlas-richie-ai-starter-vector-store-dashvector</module>
+        <module>vector-stores/atlas-richie-ai-tencent-vectordb-store</module>
+        <module>auto-configurations/vector-stores/atlas-richie-ai-autoconfigure-vector-store-tencent-vectordb</module>
+        <module>starters/atlas-richie-ai-starter-vector-store-tencent-vectordb</module>
     </modules>
 
     <dependencyManagement>
@@ -140,6 +148,26 @@
                 <artifactId>atlas-richie-ai-autoconfigure-vector-store-vikingdb</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-dashvector-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-autoconfigure-vector-store-dashvector</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-tencent-vectordb-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-autoconfigure-vector-store-tencent-vectordb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!--
                 覆盖 Spring Boot 父 POM 管的 maven-plugin-annotations 3.7.0：
@@ -156,6 +184,16 @@
 
     <build>
         <plugins>
+            <!-- Java 21+ no longer guarantees dynamic agent attachment. Mockito is loaded
+                 up front so SDK adapter tests also remain runnable on Java 25. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
+                </configuration>
+            </plugin>
+
             <!-- 1) sources jar —— Maven Central 必备 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

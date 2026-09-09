@@ -37,6 +37,36 @@
                 <artifactId>atlas-richie-ai-starter-vector-store-vikingdb</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-dashvector-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-autoconfigure-vector-store-dashvector</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-starter-vector-store-dashvector</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-tencent-vectordb-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-autoconfigure-vector-store-tencent-vectordb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.richie696.ai</groupId>
+                <artifactId>atlas-richie-ai-starter-vector-store-tencent-vectordb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
